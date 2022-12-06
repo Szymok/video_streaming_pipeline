@@ -102,3 +102,33 @@ def main1(message):
 		fh.write(data)
 	os.system('webm -i ' + uri + ' ' + folder + 'pic_' + time_formatted + '.mp4')
 	os.system('rm ' + uri)
+
+
+@socketio.on('classify_img')
+def main2(message):
+	print(len(message['data'][0]))
+	data = message['data'][0]
+
+	# Get current ts in ms - append ts to image name so always save a new image
+	timestamp = datetime.now()
+	time_formatted = timestamp.strftime('%Y%m%d%H%M%S')
+	file_name = 'pic_' + time_formatted + '.webm'
+
+	# folder to store the image
+	folder = '/home/nicolasmichaelroux/videos/'
+	uri = folder + file_name
+
+	# Need to decode it using base64
+	with open(uri, "wb") as fh:
+		fh.write(data)
+	os.system("webm -i " + uri + " " + folder + "pic_" + time_formatted + ".mp4")
+	os.system("rm " + uri)
+
+	print("starting query")
+	result = queryModel(folder + "pic_" + time_formatted + ".mp4")
+	# Send data back to the client in the form of a label detected or text extracted
+	emit('my_response', {'data': result})
+
+
+if __name__ == '__main__':
+	socketio.run(app)
