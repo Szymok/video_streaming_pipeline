@@ -8,7 +8,9 @@ import cv2
 import numpy as np
 import time
 
+
 class ConsumerThread:
+
 	def __init__(self, config, topic, batch_size, db, videos_map):
 		self.config = config
 		self.topic = topic
@@ -23,7 +25,7 @@ class ConsumerThread:
 
 	def run(self, consumer, msg_count, msg_array, metadata_array):
 		try:
-			img_array2=[]
+			img_array2 = []
 			while True:
 				msg = consumer.poll(0.5)
 				if msg == None:
@@ -55,3 +57,50 @@ class ConsumerThread:
 						labels = decode_predictions(predictions)
 
 						self.videos_map = reset_map(self.videos_map)
+						for metadata, image in zip(metadata_array, img_array2):
+							frame_no, video_name = metadata
+							doc = {'image': image, 'frame': frame_no}
+							self.videos_map[video_name].append(doc)
+
+							# Insert bulk results into mongodb
+							insert_data_unique(self.db, self.videos_map)
+
+							# Commit synchronously
+							consumer.commit(asynchronous=False)
+							# Reset parameters
+							msg_count = 0
+							metadata_array = []
+							msg_array = []
+							img_array2 = []
+
+					elif msg_error().code() == KafkaError._PARTITION_EOF:
+						print('End of partition reached {0}/{1}'.format(msg.topic(),
+						                                                msg.partition()))
+					else:
+						print('Error occured: {0}'.format(msg.error().str()))
+
+		except KeyboardInterrupt:
+			print('Detected Keyboard Interrupt. Quitting...')
+			pass
+
+		finally:
+			consumer.close()
+
+	def start(self, numThreads):
+		# Note that number of consumers in a group shouldn't exceed the number of partition in the topic
+		for _ in range(numThreads):
+			t = threading.Thread(target=self.read_data)
+			t.deamon = True
+			t.start()
+			while True:
+				time.sleep(10)
+
+
+if __name__ == '__main__':
+	topic = ['video-stream']
+	client = MongoClient('mongodb://localhost:21017')
+	db = client['video-stream-records']
+	video_names = ['sample_1', 'sample_2', 'sample_3']
+	videos_map = create_collections_unique(db, videos_names)
+	consumer_thread = ConsumerThread(consumer_config, topic, 32, db, videos_map)
+	consumer_thread.start(3)
