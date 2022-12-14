@@ -76,3 +76,16 @@ class HogTransformer(BaseEstimator, TransformerMixin):
 				return np.array([local_hog(img) for img in X])
 			except:
 				return np.array([local_hog(img) for img in X])
+
+
+class model_training:
+
+	def __init__(self, db_ip_str):
+		self.data = self.get_data(db_ip_str)
+		self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+		 np.array(self.data['data']),
+		 np.array(self.data['label']),
+		 test_size=.8,
+		 shuffle=True,
+		 random_state=42,
+		)
