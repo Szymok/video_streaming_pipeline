@@ -89,3 +89,81 @@ class model_training:
 		 shuffle=True,
 		 random_state=42,
 		)
+
+	def get_data(self, db_ip_str):
+		client = MongoClient('mongodb://' + db_ip_str + ':27017')
+		db = client['video-stream-records']
+		data = dict()
+		data['data'] = []
+		data['label'] = []
+		for collection in db.list_collection_names():
+			coll = db[collection]
+			for document in db[collection].find():
+				nparr = np.frombuffer(document['image'], np.uint8)
+				img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+				img = cv2.resize(img, (224, 224))
+				if collection == 'sixtine':
+					y = 'nicolas'
+				else:
+					y = 'dagobert'
+				data['data'].append(img)
+				data['label'].append(y)
+
+		return data
+
+
+if __name__ == '__main__':
+	print('step_1')
+	model = model_training('35.238.232.235')
+	with mlflow.start_run():
+		print('step 2')
+		HOG_pipeline = Pipeline([('grayify', RGB2GrayTransformer()),
+		                         ('hogiby',
+		                          HogTransformer(pixels_per_cell=(14, 14),
+		                                         cells_per_block=(2, 2),
+		                                         orientations=9,
+		                                         block_norm='L2-HYS')),
+		                         ('scalify', StandardScaler()),
+		                         ('classify',
+		                          SGDClassifier(random_state=42,
+		                                        max_iter=1000,
+		                                        tol=1e-3))])
+
+		param_grid = {
+		 'hogify__orientations': [8],
+		 'hogify__cells_per_block': [(2, 2)],
+		 'hogify__pixels_per_cell': [(8, 8)],
+		 'classify': [
+		  SGDClassifier(random_state=42, max_iter=1000, tol=1e-3),
+		  svm.SVC(kernel='linear')
+		 ]
+		}
+		print('step 3')
+		grid_search = GridSearchCV(HOG_pipeline,
+		                           param_grid,
+		                           cv=2,
+		                           n_jobs=-1,
+		                           scoring='accuracy',
+		                           verbose=1,
+		                           return_train_score=True)
+		grid_res = grid_search.fit(model.X_train, model.y_train)
+
+		best_pred = grid_res.predict(model.X_test)
+		accuracy = 100 * np.sum(best_pred == model.y_test) / len(model.y_test)
+
+		mlflow.log_params('orientations',
+		                  grid_search.best_params_['hogify__orientations'])
+		mlflow.log_params('cell_per_block',
+		                  grid_search.best_params_['hogify__cells_per_block'])
+		mlflow.log_params('pixels_per_cell',
+		                  grid_search.best_params_['hogify__pixels_per_cell'])
+		mlflow.log_params('classifier', grid_search.best_params_['classify'])
+		mlflow.log_metric('accuracy', accuracy)
+
+		tracking_url_type_store = urlparse(mlflow.get_tracking_uri()).scheme
+		if tracking_url_type_store != 'file':
+			mlflow.sklearn.log_model(grid_search,
+			                         'model',
+			                         registered_model_name='Video_classifier')
+		else:
+			mlflow.sklearn.log_model(grid_search, 'model')
